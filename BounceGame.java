@@ -20,7 +20,11 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
     private static final int HEIGHT = 640;
 
     private static final double GRAVITY = 0.65;
-    private static final double MOVE_SPEED = 4.2;
+    private static final double HORIZONTAL_ACCEL = 0.78;
+    private static final double MAX_MOVE_SPEED = 6.2;
+    private static final double AIR_DRAG = 0.992;
+    private static final double GROUND_FRICTION = 0.86;
+    private static final double BOUNCE_RESTITUTION = 0.38;
     private static final double JUMP_VELOCITY = -12.8;
 
     private final Timer timer = new Timer(16, this);
@@ -38,7 +42,6 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
     private boolean leftPressed;
     private boolean rightPressed;
     private boolean jumpHeld;
-    private boolean jumpConsumed;
 
     private int cameraX;
     private int score;
@@ -77,7 +80,6 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         gameOver = false;
         gameWon = false;
         jumpHeld = false;
-        jumpConsumed = false;
         shieldUntil = 0;
         slowMotionUntil = 0;
         comboUntil = 0;
@@ -163,16 +165,21 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
             default -> GRAVITY;
         };
 
-        if (leftPressed) player.vx = -MOVE_SPEED;
-        else if (rightPressed) player.vx = MOVE_SPEED;
-        else player.vx *= 0.8;
+        double steer = 0;
+        if (leftPressed) steer -= 1;
+        if (rightPressed) steer += 1;
+        player.vx += steer * HORIZONTAL_ACCEL * dt;
+        if (Math.abs(steer) < 0.01) {
+            player.vx *= player.onGround ? GROUND_FRICTION : 0.98;
+        }
+        player.vx = Math.max(-MAX_MOVE_SPEED, Math.min(MAX_MOVE_SPEED, player.vx));
 
         if (biome == Biome.SKY_RUINS) {
             player.vx += Math.sin(now / 320.0) * 0.05;
         }
 
-        if (jumpHeld && !jumpConsumed) {
-            jumpBufferUntil = Math.max(jumpBufferUntil, now + 50);
+        if (jumpHeld) {
+            jumpBufferUntil = Math.max(jumpBufferUntil, now + 90);
         }
 
         if (jumpBufferUntil > now) {
@@ -181,19 +188,19 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
                 player.onGround = false;
                 coyoteUntil = 0;
                 jumpBufferUntil = 0;
-                jumpConsumed = true;
             } else if (player.canDoubleJump && !player.doubleJumpUsed) {
                 player.vy = JUMP_VELOCITY * 0.92;
                 player.doubleJumpUsed = true;
                 jumpBufferUntil = 0;
-                jumpConsumed = true;
             }
         }
 
         player.vy += localGravity * dt;
+        player.vx *= AIR_DRAG;
         player.x += player.vx * dt;
         player.y += player.vy * dt;
-        player.rotation += player.vx * 0.08 * dt;
+        player.angularVelocity += (player.vx / (player.size / 2.0) - player.angularVelocity) * 0.2;
+        player.rotation += player.angularVelocity * dt;
 
         player.onGround = false;
 
@@ -207,7 +214,7 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
                         double impactSpeed = player.vy;
                         player.y -= inter.height;
                         if (impactSpeed > 7.0) {
-                            player.vy = -Math.min(4.0, impactSpeed * 0.23);
+                            player.vy = -Math.min(4.6, impactSpeed * BOUNCE_RESTITUTION);
                             player.triggerBounce(impactSpeed);
                         } else {
                             player.vy = 0;
@@ -224,7 +231,8 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
                 } else {
                     if (player.x < p.x) player.x -= inter.width;
                     else player.x += inter.width;
-                    player.vx *= -0.15;
+                    player.vx *= -0.32;
+                    player.angularVelocity *= -0.4;
                 }
                 playerBounds = player.bounds();
             }
@@ -430,8 +438,7 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
             case KeyEvent.VK_RIGHT, KeyEvent.VK_D -> rightPressed = true;
             case KeyEvent.VK_UP, KeyEvent.VK_W, KeyEvent.VK_SPACE -> {
                 jumpHeld = true;
-                jumpConsumed = false;
-                jumpBufferUntil = System.currentTimeMillis() + 150;
+                jumpBufferUntil = System.currentTimeMillis() + 180;
             }
             case KeyEvent.VK_R -> {
                 if (gameOver || gameWon) {
@@ -448,7 +455,6 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
             case KeyEvent.VK_RIGHT, KeyEvent.VK_D -> rightPressed = false;
             case KeyEvent.VK_UP, KeyEvent.VK_W, KeyEvent.VK_SPACE -> {
                 jumpHeld = false;
-                jumpConsumed = false;
             }
         }
     }
@@ -495,6 +501,7 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         double vx;
         double vy;
         double rotation;
+        double angularVelocity;
         double squash = 1.0;
         long bounceVisualUntil;
         final int size;
@@ -514,6 +521,7 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
             vx = 0;
             vy = 0;
             rotation = 0;
+            angularVelocity = 0;
             squash = 1.0;
             bounceVisualUntil = 0;
             onGround = false;
