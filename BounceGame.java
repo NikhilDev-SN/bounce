@@ -37,6 +37,8 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
 
     private boolean leftPressed;
     private boolean rightPressed;
+    private boolean jumpHeld;
+    private boolean jumpConsumed;
 
     private int cameraX;
     private int score;
@@ -74,6 +76,8 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         cameraX = 0;
         gameOver = false;
         gameWon = false;
+        jumpHeld = false;
+        jumpConsumed = false;
         shieldUntil = 0;
         slowMotionUntil = 0;
         comboUntil = 0;
@@ -167,22 +171,29 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
             player.vx += Math.sin(now / 320.0) * 0.05;
         }
 
+        if (jumpHeld && !jumpConsumed) {
+            jumpBufferUntil = Math.max(jumpBufferUntil, now + 50);
+        }
+
         if (jumpBufferUntil > now) {
             if (player.onGround || now <= coyoteUntil) {
                 player.vy = JUMP_VELOCITY;
                 player.onGround = false;
                 coyoteUntil = 0;
                 jumpBufferUntil = 0;
+                jumpConsumed = true;
             } else if (player.canDoubleJump && !player.doubleJumpUsed) {
                 player.vy = JUMP_VELOCITY * 0.92;
                 player.doubleJumpUsed = true;
                 jumpBufferUntil = 0;
+                jumpConsumed = true;
             }
         }
 
         player.vy += localGravity * dt;
         player.x += player.vx * dt;
         player.y += player.vy * dt;
+        player.rotation += player.vx * 0.08 * dt;
 
         player.onGround = false;
 
@@ -193,8 +204,14 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
                 Rectangle inter = playerBounds.intersection(pb);
                 if (inter.height < inter.width) {
                     if (player.vy > 0) {
+                        double impactSpeed = player.vy;
                         player.y -= inter.height;
-                        player.vy = 0;
+                        if (impactSpeed > 7.0) {
+                            player.vy = -Math.min(4.0, impactSpeed * 0.23);
+                            player.triggerBounce(impactSpeed);
+                        } else {
+                            player.vy = 0;
+                        }
                         player.onGround = true;
                         coyoteUntil = now + 110;
                         player.doubleJumpUsed = false;
@@ -411,7 +428,11 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         switch (e.getKeyCode()) {
             case KeyEvent.VK_LEFT, KeyEvent.VK_A -> leftPressed = true;
             case KeyEvent.VK_RIGHT, KeyEvent.VK_D -> rightPressed = true;
-            case KeyEvent.VK_UP, KeyEvent.VK_W, KeyEvent.VK_SPACE -> jumpBufferUntil = System.currentTimeMillis() + 150;
+            case KeyEvent.VK_UP, KeyEvent.VK_W, KeyEvent.VK_SPACE -> {
+                jumpHeld = true;
+                jumpConsumed = false;
+                jumpBufferUntil = System.currentTimeMillis() + 150;
+            }
             case KeyEvent.VK_R -> {
                 if (gameOver || gameWon) {
                     initLevel();
@@ -425,6 +446,10 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         switch (e.getKeyCode()) {
             case KeyEvent.VK_LEFT, KeyEvent.VK_A -> leftPressed = false;
             case KeyEvent.VK_RIGHT, KeyEvent.VK_D -> rightPressed = false;
+            case KeyEvent.VK_UP, KeyEvent.VK_W, KeyEvent.VK_SPACE -> {
+                jumpHeld = false;
+                jumpConsumed = false;
+            }
         }
     }
 
@@ -469,6 +494,9 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         double y;
         double vx;
         double vy;
+        double rotation;
+        double squash = 1.0;
+        long bounceVisualUntil;
         final int size;
         boolean onGround;
         boolean canDoubleJump;
@@ -485,6 +513,9 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
             y = ny;
             vx = 0;
             vy = 0;
+            rotation = 0;
+            squash = 1.0;
+            bounceVisualUntil = 0;
             onGround = false;
             doubleJumpUsed = false;
         }
@@ -494,14 +525,38 @@ public class BounceGame extends JPanel implements ActionListener, KeyListener {
         }
 
         void draw(Graphics2D g2, boolean shielded) {
+            if (System.currentTimeMillis() > bounceVisualUntil) {
+                squash += (1.0 - squash) * 0.15;
+            }
+
+            double w = size * squash;
+            double h = size * (2.0 - squash);
+            double drawX = x + (size - w) / 2.0;
+            double drawY = y + (size - h) / 2.0;
+
             if (shielded) {
                 g2.setColor(new Color(0, 220, 255, 85));
                 g2.fill(new Ellipse2D.Double(x - 8, y - 8, size + 16, size + 16));
             }
-            g2.setColor(new Color(255, 105, 180));
-            g2.fill(new Ellipse2D.Double(x, y, size, size));
-            g2.setColor(new Color(255, 245, 250));
-            g2.draw(new Ellipse2D.Double(x, y, size, size));
+
+            Graphics2D spin = (Graphics2D) g2.create();
+            spin.rotate(rotation, x + size / 2.0, y + size / 2.0);
+
+            spin.setColor(new Color(255, 105, 180));
+            spin.fill(new Ellipse2D.Double(drawX, drawY, w, h));
+            spin.setColor(new Color(255, 245, 250));
+            spin.draw(new Ellipse2D.Double(drawX, drawY, w, h));
+
+            // Rolling seam for visible spin feedback.
+            spin.setStroke(new BasicStroke(2.3f));
+            spin.setColor(new Color(255, 220, 245));
+            spin.drawArc((int) drawX + 4, (int) drawY + 4, (int) w - 8, (int) h - 8, 20, 140);
+            spin.dispose();
+        }
+
+        void triggerBounce(double impactSpeed) {
+            squash = Math.max(0.74, 1.0 - Math.min(0.24, impactSpeed * 0.018));
+            bounceVisualUntil = System.currentTimeMillis() + 110;
         }
     }
 

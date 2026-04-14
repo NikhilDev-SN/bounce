@@ -7,7 +7,9 @@ A modernized Java/Swing take on the classic Bounce-style game.
 - Coins and combo scoring
 - Enemies and spike hazards
 - Smoother edge jumping with jump-buffer + coyote-time handling
+- Reliable jump input even while moving left/right
 - Corner correction for less frustrating platform-edge head bumps
+- Ball now visibly rolls (spin seam) and shows squash/bounce feedback on landings
 - Modern power-ups:
   - Shield (one-hit protection)
   - Slow Motion (temporary gameplay slowdown)
